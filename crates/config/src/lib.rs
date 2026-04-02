@@ -21,7 +21,7 @@ pub struct NodeConfig {
     /// Base URL of the llama.cpp server (separate process), e.g. `http://127.0.0.1:8181`
     pub llama_base_url: String,
     pub model_name: String,
-    /// Hex-encoded peer IDs to dial on startup
+    /// Peer multiaddrs to dial on startup, e.g. `/ip4/127.0.0.1/tcp/9001/p2p/<peer-id>`
     pub bootstrap_peers: Vec<String>,
 }
 
@@ -38,12 +38,16 @@ impl Default for NodeConfig {
 }
 
 impl NodeConfig {
+    pub fn config_dir() -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ai-mesh")
+    }
+
     /// Load config from `~/.config/ai-mesh/config.toml`, creating it with
     /// defaults if it doesn't exist yet.
     pub fn load() -> Result<Self, ConfigError> {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("ai-mesh");
+        let config_dir = Self::config_dir();
 
         let path = config_dir.join("config.toml");
 

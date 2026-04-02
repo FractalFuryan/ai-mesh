@@ -83,6 +83,27 @@ impl Default for NodeIdentity {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeCapability {
+    pub models: Vec<String>,
+    pub max_context: u32,
+    pub quant: String,
+    pub estimated_speed: f32,
+    pub supported_tasks: Vec<String>,
+}
+
+impl Default for NodeCapability {
+    fn default() -> Self {
+        Self {
+            models: vec!["local-model".to_string()],
+            max_context: 8192,
+            quant: "Q4_K_M".to_string(),
+            estimated_speed: 25.0,
+            supported_tasks: vec!["chat".to_string()],
+        }
+    }
+}
+
 // ─── Job Envelope ─────────────────────────────────────────────────────────────
 
 /// An unsigned or signed job envelope sent from requester to worker.

@@ -1,105 +1,196 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Result};
 use api::{router, ApiState};
 use axum::serve;
-use libp2p::{request_response, swarm::SwarmEvent, Multiaddr};
+use clap::{Parser, Subcommand};
+use config::NodeConfig;
+use libp2p::{Multiaddr, PeerId};
 use model_runtime::LlamaRuntime;
-use net_libp2p::{BehaviourEvent, MeshNode, MeshRequest, MeshResponse};
-use node_core::{JobResultEnvelope, NodeIdentity};
-use mesh_config::NodeConfig;
-use std::sync::Arc;
+use net_libp2p::{extract_capability, extract_request, MeshNode, MeshRequest, MeshResponse};
+use node_core::{JobEnvelope, JobResultEnvelope, NodeCapability, NodeIdentity};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
+use tracing::{info, warn};
+
+#[derive(Parser)]
+#[command(author, version, about = "Decentralized P2P AI Mesh Node")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the full mesh node (daemon mode)
+    Run,
+    /// Send a one-off job to a peer (useful for testing)
+    SendJob {
+        /// Target peer ID (base58 string from logs)
+        #[arg(long)]
+        to: String,
+        /// Prompt / task to send
+        #[arg(long)]
+        prompt: String,
+    },
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+    let cli = Cli::parse();
 
-    let config = NodeConfig::load().context("failed to load config")?;
+    let config = NodeConfig::load()?;
 
-    // Persistent identity: load from ~/.ai-mesh/identity.key or create a new one.
-    let identity_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".ai-mesh");
+    // Persistent identity
+    let identity_dir = config::NodeConfig::config_dir().join("identity");
     let identity_path = identity_dir.join("identity.key");
 
     let identity = if identity_path.exists() {
-        NodeIdentity::load(&identity_path).context("failed to load identity")?
+        info!("Loading existing identity");
+        NodeIdentity::load(&identity_path)?
     } else {
-        std::fs::create_dir_all(&identity_dir).context("failed to create identity dir")?;
+        info!("Generating new identity");
+        std::fs::create_dir_all(&identity_dir)?;
         let id = NodeIdentity::new();
-        id.save(&identity_path).context("failed to save identity")?;
+        id.save(&identity_path)?;
         id
     };
-    tracing::info!(peer = %identity.peer_id_hex(), "node identity loaded");
 
+    info!("Node Peer ID: {}", identity.peer_id_hex());
+
+    match cli.command {
+        Some(Command::SendJob { to, prompt }) => {
+            send_one_shot_job(&config, &identity, &to, &prompt).await?;
+        }
+        _ => {
+            run_daemon(config, identity).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_daemon(config: NodeConfig, identity: NodeIdentity) -> Result<()> {
     let runtime = Arc::new(LlamaRuntime::new(&config.llama_base_url, &config.model_name));
-    let api_state = ApiState { runtime: runtime.clone() };
 
-    let listener = TcpListener::bind(&config.api_listen)
-        .await
-        .with_context(|| format!("failed to bind api on {}", config.api_listen))?;
-    tracing::info!(addr = %config.api_listen, "api listening");
-
+    // Start local API
+    let api_addr: SocketAddr = config.api_listen.parse()?;
+    let api_state = ApiState {
+        runtime: runtime.clone(),
+    };
+    let listener = TcpListener::bind(api_addr).await?;
     tokio::spawn(async move {
-        if let Err(e) = serve(listener, router(api_state)).await {
-            tracing::error!(error = %e, "api server error");
+        let app = router(api_state);
+        info!("API listening on http://{}", api_addr);
+        if let Err(e) = serve(listener, app).await {
+            warn!("API server error: {}", e);
         }
     });
 
-    let p2p_addr: Multiaddr = config
-        .p2p_listen
-        .parse()
-        .with_context(|| format!("invalid p2p multiaddr: {}", config.p2p_listen))?;
-    let mut mesh = MeshNode::new(p2p_addr).await?;
-    tracing::info!(peer = %mesh.peer_id, p2p = %config.p2p_listen, "mesh node running");
+    // Start P2P
+    let p2p_addr: Multiaddr = config.p2p_listen.parse()?;
+    let mut mesh = MeshNode::new(p2p_addr.clone()).await?;
 
-    loop {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("shutdown signal received");
-                break;
-            }
-            event = mesh.next() => {
-                match event {
-                    SwarmEvent::Behaviour(BehaviourEvent::Reqres(
-                        request_response::Event::Message { peer, message, .. }
-                    )) => match message {
-                        request_response::Message::Request { request, channel, .. } => {
-                            match request {
-                                MeshRequest::RunJob(job) => {
-                                    tracing::info!(peer = %peer, job_id = %job.job_id, "received mesh job");
-                                    let output = match runtime.chat(&job.payload).await {
-                                        Ok(v) => v,
-                                        Err(e) => format!("runtime error: {e}"),
-                                    };
-                                    let response = match JobResultEnvelope::new(
-                                        job.job_id,
-                                        identity.peer_id_hex(),
-                                        job.model,
-                                        output,
-                                    )
-                                    .sign(&identity)
-                                    {
-                                        Ok(signed) => MeshResponse::JobResult(signed),
-                                        Err(e) => MeshResponse::Error(e.to_string()),
-                                    };
-                                    mesh.respond(channel, response);
-                                }
-                            }
-                        }
-                        request_response::Message::Response { response, .. } => {
-                            tracing::info!(?response, "received mesh response");
-                        }
-                    },
-                    SwarmEvent::Behaviour(other) => {
-                        tracing::debug!(?other, "swarm behaviour event");
-                    }
-                    other => {
-                        tracing::debug!(?other, "swarm event");
-                    }
-                }
+    // Announce our capability profile on mesh startup.
+    let capability = NodeCapability {
+        models: vec![config.model_name.clone()],
+        ..NodeCapability::default()
+    };
+    if let Err(e) = mesh.publish_capability(&capability) {
+        warn!("Failed to publish capability: {}", e);
+    } else {
+        info!("Published node capabilities");
+    }
+
+    // Bootstrap dialing
+    for addr_str in &config.bootstrap_peers {
+        if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+            if let Err(e) = mesh.dial(addr) {
+                warn!("Failed to dial bootstrap peer {}: {}", addr_str, e);
+            } else {
+                info!("Dialed bootstrap peer: {}", addr_str);
             }
         }
     }
 
+    info!("P2P listening on {}", p2p_addr);
+
+    // Main event loop
+    loop {
+        if let Some(event) = mesh.next_event().await {
+            if let Some((peer, capability)) = extract_capability(&event) {
+                info!(
+                    "Discovered capability from {}: models={:?} quant={} max_context={} speed={} tasks={:?}",
+                    peer,
+                    capability.models,
+                    capability.quant,
+                    capability.max_context,
+                    capability.estimated_speed,
+                    capability.supported_tasks,
+                );
+            }
+
+            if let Some((peer, request, channel)) = extract_request(&event) {
+                match request {
+                    MeshRequest::RunJob(job) => {
+                        info!("Received job {} from {}", job.job_id, peer);
+
+                        let output = match runtime.chat(&job.payload).await {
+                            Ok(s) => s,
+                            Err(e) => format!("runtime error: {}", e),
+                        };
+
+                        let result = JobResultEnvelope::new(
+                            job.job_id,
+                            identity.peer_id_hex(),
+                            job.model.clone(),
+                            output,
+                        )
+                        .sign(&identity)?;
+
+                        mesh.send_response(channel, MeshResponse::JobResult(result));
+                        info!("Sent signed result for job {}", job.job_id);
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+async fn send_one_shot_job(
+    config: &NodeConfig,
+    identity: &NodeIdentity,
+    target: &str,
+    prompt: &str,
+) -> Result<()> {
+    // Prefer regular PeerId text format, but also accept hex-encoded bytes.
+    let target_peer: PeerId = target.parse().or_else(|_| {
+        let bytes = hex::decode(target).map_err(|e| anyhow!("invalid --to value: {e}"))?;
+        PeerId::from_bytes(&bytes).map_err(|e| anyhow!("invalid peer id bytes: {e}"))
+    })?;
+
+    let job = JobEnvelope::new(
+        "chat".to_string(),
+        config.model_name.clone(),
+        prompt.to_string(),
+        identity.peer_id_hex(),
+    )
+    .sign(identity)?;
+
+    let p2p_addr: Multiaddr = config.p2p_listen.parse()?;
+    let mut mesh = MeshNode::new(p2p_addr).await?;
+
+    // Dial first bootstrap or assume target is reachable.
+    if let Some(bootstrap) = config.bootstrap_peers.first() {
+        if let Ok(addr) = bootstrap.parse::<Multiaddr>() {
+            let _ = mesh.dial(addr);
+        }
+    }
+
+    let _request_id = mesh.send_job(&target_peer, job);
+    info!("Sent one-shot job to peer {}", target);
+
+    // For simplicity we do not wait for response in one-shot mode yet.
+    tokio::time::sleep(Duration::from_secs(3)).await;
     Ok(())
 }

@@ -1,5 +1,5 @@
 [package]
-name = "mesh-config"
+name = "config"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Node configuration for ai-mesh"
 
 [dependencies]
-dirs = "5.0"
-serde = { workspace = true }
-thiserror = { workspace = true }
-toml = "0.8"
+dirs.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true

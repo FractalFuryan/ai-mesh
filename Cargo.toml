@@ -20,13 +20,15 @@ description = "Decentralized P2P Tor-compatible AI Mesh — Local-first intellig
 [workspace.dependencies]
 axum = { version = "0.8", features = ["json"] }
 blake2 = "0.10"
+dirs = "5.0"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
-libp2p = { version = "0.56", features = ["tokio", "tcp", "noise", "yamux", "macros", "identify", "ping", "request-response", "json"] }
+libp2p = { version = "0.56", features = ["tokio", "tcp", "noise", "yamux", "macros", "identify", "ping", "request-response", "json", "gossipsub"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
+toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
