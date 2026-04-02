@@ -6,10 +6,11 @@ Local-first intelligence network. Every device is an AI node. No central servers
 ## Features
 
 - Local inference only (powered by llama.cpp)
-- OpenAI-compatible local API (`/v1/chat/completions`)
+- HTTP API for chat-style prompts
 - libp2p-powered peer-to-peer mesh with signed jobs and receipts
 - ed25519 signatures + BLAKE2b receipts for verifiable results
 - Capability advertisement and basic peer discovery
+- Basic intelligent routing (run locally vs forward)
 - Persistent identity and TOML configuration
 - Optional Tor transport (planned)
 
@@ -31,43 +32,43 @@ cargo run -p cli run
 
 ```bash
 curl http://127.0.0.1:8080/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{
-        "messages": [{"role": "user", "content": "Hello from ai-mesh!"}]
-    }'
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "Hello from ai-mesh!"}]
+  }'
 ```
 
 ## Two-Node Test
 
 1. **Node A** (default ports):
-     ```bash
-     cargo run -p cli run
-     ```
-     Copy its Peer ID from the startup log.
+   ```bash
+   cargo run -p cli run
+   ```
+   Copy its Peer ID from the startup log.
 
-2. **Node B** - edit `~/.config/ai-mesh/config.toml`:
-     ```toml
-     p2p_listen = "/ip4/0.0.0.0/tcp/9001"
-     bootstrap_peers = ["/ip4/127.0.0.1/tcp/9000/p2p/<NodeA-Peer-ID>"]
-     ```
+2. **Node B** – edit `~/.config/ai-mesh/config.toml`:
+   ```toml
+   p2p_listen = "/ip4/0.0.0.0/tcp/9001"
+   bootstrap_peers = ["/ip4/127.0.0.1/tcp/9000/p2p/<NodeA-Peer-ID>"]
+   ```
 
 3. Start Node B:
-     ```bash
-     cargo run -p cli run
-     ```
+   ```bash
+   cargo run -p cli run
+   ```
 
 4. From Node B, send a test job to Node A:
-     ```bash
-     cargo run -p cli send-job \
-         --to <NodeA-Peer-ID> \
-         --prompt "Hello from Node B via the mesh!"
-     ```
+   ```bash
+   cargo run -p cli send-job \
+     --to <NodeA-Peer-ID> \
+     --prompt "Hello from Node B via the mesh!"
+   ```
 
 You should see the job received and a signed result returned on Node A.
 
-## Capability Advertisement
+## Capability Advertisement & Routing
 
-Nodes now automatically publish their capabilities on startup via gossipsub (`ai-mesh/capabilities` topic).
+Nodes automatically publish their capabilities on startup via gossipsub (`ai-mesh/capabilities` topic).
 
 Current capability includes:
 - Available models
@@ -75,17 +76,24 @@ Current capability includes:
 - Quantization level
 - Rough speed estimate
 
-Future steps will use these announcements for intelligent job routing.
+When a job arrives, the node now scores itself using `NodeCapability::score_for_job()`:
+- +10 bonus if the model matches
+- + estimated speed
+
+If the score is high enough (>15.0), it runs the job locally and returns a signed result.  
+Otherwise it logs a forwarding intent (real forwarding coming next).
+
+This is the first step toward intelligent mesh routing.
 
 ## Project Structure
 
-```text
+```
 ai-mesh/
 ├── crates/
-│   ├── node-core/      # Identity, signing, JobEnvelope, NodeCapability
+│   ├── node-core/      # Identity, signing, JobEnvelope, NodeCapability, receipts
 │   ├── model-runtime/  # llama.cpp wrapper
-│   ├── net-libp2p/     # libp2p mesh + gossipsub
-│   ├── api/            # Axum OpenAI façade
+│   ├── net-libp2p/     # libp2p mesh + gossipsub + request/response
+│   ├── api/            # HTTP API layer
 │   ├── config/         # TOML config + persistence
 │   └── cli/            # Daemon + send-job subcommand
 ├── config/

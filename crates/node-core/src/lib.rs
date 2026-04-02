@@ -104,6 +104,22 @@ impl Default for NodeCapability {
     }
 }
 
+impl NodeCapability {
+    /// Simple score for how good this node is for a given job.
+    pub fn score_for_job(&self, job_model: &str) -> f32 {
+        let model_match = if self
+            .models
+            .iter()
+            .any(|m| m == job_model || m.contains(job_model))
+        {
+            10.0
+        } else {
+            0.0
+        };
+        model_match + self.estimated_speed
+    }
+}
+
 // ─── Job Envelope ─────────────────────────────────────────────────────────────
 
 /// An unsigned or signed job envelope sent from requester to worker.

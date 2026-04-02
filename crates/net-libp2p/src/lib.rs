@@ -12,6 +12,13 @@ use thiserror::Error;
 
 const CAPABILITY_TOPIC: &str = "ai-mesh/capabilities";
 
+#[derive(Debug, Clone)]
+pub enum RoutingDecision {
+    Local,
+    Forward(PeerId),
+    Reject(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MeshRequest {
     RunJob(JobEnvelope),

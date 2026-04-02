@@ -5,7 +5,9 @@ use clap::{Parser, Subcommand};
 use config::NodeConfig;
 use libp2p::{Multiaddr, PeerId};
 use model_runtime::LlamaRuntime;
-use net_libp2p::{extract_capability, extract_request, MeshNode, MeshRequest, MeshResponse};
+use net_libp2p::{
+    extract_capability, extract_request, MeshNode, MeshRequest, MeshResponse, RoutingDecision,
+};
 use node_core::{JobEnvelope, JobResultEnvelope, NodeCapability, NodeIdentity};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
@@ -134,21 +136,62 @@ async fn run_daemon(config: NodeConfig, identity: NodeIdentity) -> Result<()> {
                     MeshRequest::RunJob(job) => {
                         info!("Received job {} from {}", job.job_id, peer);
 
-                        let output = match runtime.chat(&job.payload).await {
-                            Ok(s) => s,
-                            Err(e) => format!("runtime error: {}", e),
+                        let my_cap = NodeCapability {
+                            models: vec![config.model_name.clone()],
+                            ..NodeCapability::default()
+                        };
+                        let score = my_cap.score_for_job(&job.model);
+
+                        let decision = if score > 15.0 {
+                            RoutingDecision::Local
+                        } else {
+                            // Peer-aware forwarding comes next; keep explicit placeholder.
+                            RoutingDecision::Forward(peer)
                         };
 
-                        let result = JobResultEnvelope::new(
-                            job.job_id,
-                            identity.peer_id_hex(),
-                            job.model.clone(),
-                            output,
-                        )
-                        .sign(&identity)?;
+                        match decision {
+                            RoutingDecision::Local => {
+                                info!("Running job locally (score: {:.1})", score);
 
-                        mesh.send_response(channel, MeshResponse::JobResult(result));
-                        info!("Sent signed result for job {}", job.job_id);
+                                let output = match runtime.chat(&job.payload).await {
+                                    Ok(s) => s,
+                                    Err(e) => format!("runtime error: {}", e),
+                                };
+
+                                let result = JobResultEnvelope::new(
+                                    job.job_id,
+                                    identity.peer_id_hex(),
+                                    job.model.clone(),
+                                    output,
+                                )
+                                .sign(&identity)?;
+
+                                mesh.send_response(channel, MeshResponse::JobResult(result));
+                                info!("Sent signed local result for job {}", job.job_id);
+                            }
+                            RoutingDecision::Forward(best_peer) => {
+                                info!(
+                                    "Job score too low ({:.1}), would forward if better peers known (placeholder peer: {})",
+                                    score,
+                                    best_peer,
+                                );
+
+                                let output =
+                                    "forwarding not implemented yet - running locally".to_string();
+                                let result = JobResultEnvelope::new(
+                                    job.job_id,
+                                    identity.peer_id_hex(),
+                                    job.model.clone(),
+                                    output,
+                                )
+                                .sign(&identity)?;
+
+                                mesh.send_response(channel, MeshResponse::JobResult(result));
+                            }
+                            RoutingDecision::Reject(reason) => {
+                                mesh.send_response(channel, MeshResponse::Error(reason));
+                            }
+                        }
                     }
                 }
             }
