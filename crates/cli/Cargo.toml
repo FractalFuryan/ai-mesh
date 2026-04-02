@@ -15,7 +15,8 @@ path = "src/main.rs"
 anyhow = "1.0"
 api = { path = "../api" }
 axum.workspace = true
-clap = { version = "4.5", features = ["derive", "env"] }
+dirs = "5.0"
+mesh-config = { path = "../config" }
 model-runtime = { path = "../model-runtime" }
 net-libp2p = { path = "../net-libp2p" }
 node-core = { path = "../node-core" }

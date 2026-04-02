@@ -4,6 +4,7 @@ use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
+use std::path::Path;
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,10 @@ pub enum CoreError {
     InvalidSignatureBytes,
     #[error("signature verification failed")]
     VerifyFailed,
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("invalid signing key length (expected 32 bytes)")]
+    InvalidKeyLength,
 }
 
 // ─── Node Identity ────────────────────────────────────────────────────────────
@@ -49,6 +54,26 @@ impl NodeIdentity {
     /// Sign arbitrary bytes; returns an `ed25519_dalek::Signature`.
     pub fn sign_bytes(&self, bytes: &[u8]) -> Signature {
         self.signing_key.sign(bytes)
+    }
+
+    /// Persist the raw 32-byte signing key to `path`.
+    pub fn save(&self, path: &Path) -> Result<(), CoreError> {
+        std::fs::write(path, self.signing_key.to_bytes())?;
+        Ok(())
+    }
+
+    /// Load a previously saved identity from `path`.
+    pub fn load(path: &Path) -> Result<Self, CoreError> {
+        let bytes = std::fs::read(path)?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| CoreError::InvalidKeyLength)?;
+        let signing_key = SigningKey::from_bytes(&arr);
+        let verifying_key = signing_key.verifying_key();
+        Ok(Self {
+            signing_key,
+            verifying_key,
+        })
     }
 }
 

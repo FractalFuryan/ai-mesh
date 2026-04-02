@@ -5,6 +5,7 @@ members = [
     "crates/net-libp2p",
     "crates/api",
     "crates/cli",
+    "crates/config",
 ]
 resolver = "2"
 
