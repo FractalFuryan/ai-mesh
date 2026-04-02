@@ -1,0 +1,25 @@
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface and daemon entry point"
+
+[[bin]]
+name = "ai-mesh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+api = { path = "../api" }
+axum.workspace = true
+clap = { version = "4.5", features = ["derive", "env"] }
+model-runtime = { path = "../model-runtime" }
+net-libp2p = { path = "../net-libp2p" }
+node-core = { path = "../node-core" }
+libp2p.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

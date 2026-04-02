@@ -1,0 +1,16 @@
+/target/
+**/*.rs.bk
+
+# Model assets and runtime binaries
+*.gguf
+llama-server*
+
+# Environment and secrets
+.env
+.env.*
+config/local.toml
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

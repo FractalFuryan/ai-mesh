@@ -1,0 +1,15 @@
+[package]
+name = "net-libp2p"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mesh networking crate for ai-mesh"
+
+[dependencies]
+futures = "0.3"
+libp2p.workspace = true
+node-core = { path = "../node-core" }
+serde.workspace = true
+thiserror.workspace = true

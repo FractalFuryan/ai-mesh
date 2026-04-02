@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "crates/node-core",
+    "crates/model-runtime",
+    "crates/net-libp2p",
+    "crates/api",
+    "crates/cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["FractalFuryan"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FractalFuryan/ai-mesh"
+description = "Decentralized P2P Tor-compatible AI Mesh — Local-first intelligence network"
+
+[workspace.dependencies]
+axum = { version = "0.8", features = ["json"] }
+blake2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hex = "0.4"
+libp2p = { version = "0.56", features = ["tokio", "tcp", "noise", "yamux", "macros", "identify", "ping", "request-response", "json"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }

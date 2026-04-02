@@ -1,0 +1,14 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Axum-based HTTP facade for ai-mesh"
+
+[dependencies]
+axum.workspace = true
+model-runtime = { path = "../model-runtime" }
+serde.workspace = true
+serde_json.workspace = true

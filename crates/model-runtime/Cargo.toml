@@ -1,0 +1,13 @@
+[package]
+name = "model-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Model execution adapters and process wrappers"
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+thiserror.workspace = true
